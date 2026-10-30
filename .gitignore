@@ -1,7 +1,15 @@
-# Godot 4
-.godot/
-/android/
-*.tmp
+# The repository contains only the RunCrafter plugin and its docs.
+# Everything else in this Godot project (project.godot, test scenes,
+# editor caches) stays local.
+/*
+!/addons/
+/addons/*
+!/addons/runcrafter/
+!/README.md
+!/LICENSE
+!/.gitignore
+!/.gitattributes
+
 # OS
 .DS_Store
 Thumbs.db
