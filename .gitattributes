@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.svg text eol=lf
+*.png binary
+# Not needed in downloaded archives (Godot Asset Library / GitHub ZIP)
+/.gitignore export-ignore
+/.gitattributes export-ignore

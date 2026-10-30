@@ -1,0 +1,510 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_fsm_component.gd" id="1_upnj2"]
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_transition.gd" id="2_iilc7"]
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_fsm.gd" id="3_nd3qc"]
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_state.gd" id="4_bq0mi"]
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_action.gd" id="5_y44y6"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/ui/set_modulate.gd" id="6_kbpy6"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/input/get_input_vector.gd" id="7_c2l51"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/logic/expression_test.gd" id="8_ocdq7"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/variables/set_variable_expression.gd" id="9_xig4f"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/physics/set_velocity2d.gd" id="10_jw1ox"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/physics/move_and_slide.gd" id="11_xhktr"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/math/int_add.gd" id="12_g51td"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/debug/log.gd" id="13_wrn8h"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/time/wait.gd" id="14_vlcrg"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/logic/int_compare.gd" id="15_1hh4w"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/scene/reload_scene.gd" id="16_177xw"]
+[ext_resource type="Script" path="res://addons/runcrafter/runtime/rc_variable.gd" id="17_5reo4"]
+[ext_resource type="Resource" path="res://addons/runcrafter/examples/coin_fsm.tres" id="18_dya7c"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/time/random_wait.gd" id="19_o8k3p"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/state_machine/get_fsm_variable.gd" id="20_km3ti"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/ui/set_text.gd" id="21_1ex3l"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/input/input_action_event.gd" id="22_i7doh"]
+[ext_resource type="Script" path="res://addons/runcrafter/actions/state_machine/send_event.gd" id="23_331ge"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1qntd"]
+size = Vector2(48, 48)
+
+[sub_resource type="Resource" id="Resource_8o34r"]
+script = ExtResource("2_iilc7")
+event = "HIT"
+to_state = "Hurt"
+
+[sub_resource type="Resource" id="Resource_bkxfm"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+
+[sub_resource type="Resource" id="Resource_j53lg"]
+script = ExtResource("7_c2l51")
+store_vector2 = "move"
+
+[sub_resource type="Resource" id="Resource_6ho7u"]
+script = ExtResource("8_ocdq7")
+expression = "move.length() > 0.1"
+true_event = "MOVE"
+every_frame = true
+
+[sub_resource type="Resource" id="Resource_wdjoo"]
+script = ExtResource("2_iilc7")
+event = "MOVE"
+to_state = "Move"
+
+[sub_resource type="Resource" id="Resource_kwwrl"]
+script = ExtResource("4_bq0mi")
+state_name = "Idle"
+position = Vector2(40, 40)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_bkxfm"), SubResource("Resource_j53lg"), SubResource("Resource_6ho7u")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_wdjoo")])
+
+[sub_resource type="Resource" id="Resource_4qhj0"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(0.6, 0.85, 1, 1)
+
+[sub_resource type="Resource" id="Resource_arcrt"]
+script = ExtResource("7_c2l51")
+store_vector2 = "move"
+
+[sub_resource type="Resource" id="Resource_0pnfu"]
+script = ExtResource("9_xig4f")
+variable = "velocity"
+expression = "move * speed"
+every_frame = true
+
+[sub_resource type="Resource" id="Resource_2tphb"]
+script = ExtResource("10_jw1ox")
+every_frame = true
+bindings = {
+"velocity": "velocity"
+}
+
+[sub_resource type="Resource" id="Resource_127g0"]
+script = ExtResource("11_xhktr")
+apply_gravity = false
+
+[sub_resource type="Resource" id="Resource_74xto"]
+script = ExtResource("8_ocdq7")
+expression = "move.length() <= 0.1"
+true_event = "STOP"
+every_frame = true
+
+[sub_resource type="Resource" id="Resource_gw06n"]
+script = ExtResource("2_iilc7")
+event = "STOP"
+to_state = "Idle"
+
+[sub_resource type="Resource" id="Resource_86p51"]
+script = ExtResource("4_bq0mi")
+state_name = "Move"
+position = Vector2(420, 40)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_4qhj0"), SubResource("Resource_arcrt"), SubResource("Resource_0pnfu"), SubResource("Resource_2tphb"), SubResource("Resource_127g0"), SubResource("Resource_74xto")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_gw06n")])
+
+[sub_resource type="Resource" id="Resource_pox86"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(1, 0.25, 0.25, 1)
+
+[sub_resource type="Resource" id="Resource_ka8c1"]
+script = ExtResource("10_jw1ox")
+
+[sub_resource type="Resource" id="Resource_boc0g"]
+script = ExtResource("12_g51td")
+variable = "hp"
+add = -1
+
+[sub_resource type="Resource" id="Resource_8lnnx"]
+script = ExtResource("13_wrn8h")
+text = "Ouch! HP left: {hp}"
+
+[sub_resource type="Resource" id="Resource_abjxh"]
+script = ExtResource("14_vlcrg")
+time = 0.4
+
+[sub_resource type="Resource" id="Resource_xpgyj"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Check HP"
+
+[sub_resource type="Resource" id="Resource_83cin"]
+script = ExtResource("4_bq0mi")
+state_name = "Hurt"
+position = Vector2(230, 260)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_pox86"), SubResource("Resource_ka8c1"), SubResource("Resource_boc0g"), SubResource("Resource_8lnnx"), SubResource("Resource_abjxh")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_xpgyj")])
+
+[sub_resource type="Resource" id="Resource_fbytk"]
+script = ExtResource("15_1hh4w")
+equal_event = "DEAD"
+less_than_event = "DEAD"
+greater_than_event = "ALIVE"
+bindings = {
+"int_a": "hp"
+}
+
+[sub_resource type="Resource" id="Resource_lyyxd"]
+script = ExtResource("2_iilc7")
+event = "ALIVE"
+to_state = "Idle"
+
+[sub_resource type="Resource" id="Resource_7e7hm"]
+script = ExtResource("2_iilc7")
+event = "DEAD"
+to_state = "Dead"
+
+[sub_resource type="Resource" id="Resource_da7rw"]
+script = ExtResource("4_bq0mi")
+state_name = "Check HP"
+position = Vector2(230, 470)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_fbytk")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_lyyxd"), SubResource("Resource_7e7hm")])
+
+[sub_resource type="Resource" id="Resource_uwy36"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(0.3, 0.3, 0.3, 1)
+
+[sub_resource type="Resource" id="Resource_d5ut6"]
+script = ExtResource("13_wrn8h")
+text = "Game over - reloading"
+
+[sub_resource type="Resource" id="Resource_geg0m"]
+script = ExtResource("14_vlcrg")
+time = 1.5
+
+[sub_resource type="Resource" id="Resource_s4nuf"]
+script = ExtResource("16_177xw")
+
+[sub_resource type="Resource" id="Resource_367fh"]
+script = ExtResource("4_bq0mi")
+state_name = "Dead"
+position = Vector2(560, 470)
+sequence = true
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_uwy36"), SubResource("Resource_d5ut6"), SubResource("Resource_geg0m"), SubResource("Resource_s4nuf")])
+
+[sub_resource type="Resource" id="Resource_t2cfa"]
+script = ExtResource("17_5reo4")
+name = "move"
+type = 5
+value = Vector2(0, 0)
+
+[sub_resource type="Resource" id="Resource_6llcy"]
+script = ExtResource("17_5reo4")
+name = "velocity"
+type = 5
+value = Vector2(0, 0)
+
+[sub_resource type="Resource" id="Resource_vx06n"]
+script = ExtResource("17_5reo4")
+name = "speed"
+exposed = true
+value = 350.0
+
+[sub_resource type="Resource" id="Resource_idfsb"]
+script = ExtResource("17_5reo4")
+name = "hp"
+type = 2
+exposed = true
+value = 3
+
+[sub_resource type="Resource" id="Resource_smri3"]
+script = ExtResource("3_nd3qc")
+fsm_name = "Player Controller"
+start_state = "Idle"
+states = Array[ExtResource("4_bq0mi")]([SubResource("Resource_kwwrl"), SubResource("Resource_86p51"), SubResource("Resource_83cin"), SubResource("Resource_da7rw"), SubResource("Resource_367fh")])
+global_transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_8o34r")])
+events = PackedStringArray("MOVE", "STOP", "HIT", "ALIVE", "DEAD")
+variables = Array[ExtResource("17_5reo4")]([SubResource("Resource_t2cfa"), SubResource("Resource_6llcy"), SubResource("Resource_vx06n"), SubResource("Resource_idfsb")])
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_ltag6"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_1q6bf"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_j8nsl"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_dq1ig"]
+radius = 18.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_bbrck"]
+radius = 18.0
+
+[sub_resource type="Resource" id="Resource_wpiml"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(1, 0.2, 0.2, 1)
+
+[sub_resource type="Resource" id="Resource_lfuaj"]
+script = ExtResource("14_vlcrg")
+time = 1.5
+
+[sub_resource type="Resource" id="Resource_m7bfw"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Green"
+
+[sub_resource type="Resource" id="Resource_v36cm"]
+script = ExtResource("4_bq0mi")
+state_name = "Red"
+position = Vector2(40, 40)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_wpiml"), SubResource("Resource_lfuaj")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_m7bfw")])
+
+[sub_resource type="Resource" id="Resource_6ogod"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(0.2, 1, 0.3, 1)
+
+[sub_resource type="Resource" id="Resource_bns0c"]
+script = ExtResource("19_o8k3p")
+min_time = 0.8
+max_time = 2.5
+
+[sub_resource type="Resource" id="Resource_rreuf"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Yellow"
+
+[sub_resource type="Resource" id="Resource_btatc"]
+script = ExtResource("4_bq0mi")
+state_name = "Green"
+position = Vector2(340, 40)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_6ogod"), SubResource("Resource_bns0c")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_rreuf")])
+
+[sub_resource type="Resource" id="Resource_41njo"]
+script = ExtResource("6_kbpy6")
+target = NodePath("Body")
+color = Color(1, 0.85, 0.2, 1)
+
+[sub_resource type="Resource" id="Resource_1igih"]
+script = ExtResource("14_vlcrg")
+time = 0.6
+
+[sub_resource type="Resource" id="Resource_ig31o"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Red"
+
+[sub_resource type="Resource" id="Resource_iwb56"]
+script = ExtResource("4_bq0mi")
+state_name = "Yellow"
+position = Vector2(190, 220)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_41njo"), SubResource("Resource_1igih")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_ig31o")])
+
+[sub_resource type="Resource" id="Resource_ofwb6"]
+script = ExtResource("3_nd3qc")
+fsm_name = "Traffic Light"
+start_state = "Red"
+states = Array[ExtResource("4_bq0mi")]([SubResource("Resource_v36cm"), SubResource("Resource_btatc"), SubResource("Resource_iwb56")])
+events = PackedStringArray()
+
+[sub_resource type="Resource" id="Resource_r0ell"]
+script = ExtResource("20_km3ti")
+target = NodePath("../Player")
+remote_name = "hp"
+store_value = "hp"
+every_frame = true
+
+[sub_resource type="Resource" id="Resource_uq08m"]
+script = ExtResource("21_1ex3l")
+text = "RunCrafter demo   Score: {score}   HP: {hp}
+Arrows - move, collect coins   |   Space / Enter - take damage"
+every_frame = true
+
+[sub_resource type="Resource" id="Resource_alxy3"]
+script = ExtResource("22_i7doh")
+input_action = "ui_accept"
+event = "DAMAGE"
+
+[sub_resource type="Resource" id="Resource_0hs3e"]
+script = ExtResource("2_iilc7")
+event = "COIN"
+to_state = "Add Score"
+
+[sub_resource type="Resource" id="Resource_l6ng8"]
+script = ExtResource("2_iilc7")
+event = "DAMAGE"
+to_state = "Damage"
+
+[sub_resource type="Resource" id="Resource_syn2j"]
+script = ExtResource("4_bq0mi")
+state_name = "Show"
+position = Vector2(40, 40)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_r0ell"), SubResource("Resource_uq08m"), SubResource("Resource_alxy3")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_0hs3e"), SubResource("Resource_l6ng8")])
+
+[sub_resource type="Resource" id="Resource_2rrf5"]
+script = ExtResource("12_g51td")
+variable = "score"
+
+[sub_resource type="Resource" id="Resource_ratyq"]
+script = ExtResource("13_wrn8h")
+text = "Coin collected! score={score}"
+
+[sub_resource type="Resource" id="Resource_sp5pw"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Show"
+
+[sub_resource type="Resource" id="Resource_siqgl"]
+script = ExtResource("4_bq0mi")
+state_name = "Add Score"
+position = Vector2(380, 0)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_2rrf5"), SubResource("Resource_ratyq")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_sp5pw")])
+
+[sub_resource type="Resource" id="Resource_ufvfa"]
+script = ExtResource("23_331ge")
+event = "HIT"
+send_to = 1
+target = NodePath("../Player")
+
+[sub_resource type="Resource" id="Resource_3xgl7"]
+script = ExtResource("2_iilc7")
+event = "FINISHED"
+to_state = "Show"
+
+[sub_resource type="Resource" id="Resource_mdx8f"]
+script = ExtResource("4_bq0mi")
+state_name = "Damage"
+position = Vector2(380, 160)
+actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_ufvfa")])
+transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_3xgl7")])
+
+[sub_resource type="Resource" id="Resource_iojty"]
+script = ExtResource("17_5reo4")
+name = "score"
+type = 2
+value = 0
+
+[sub_resource type="Resource" id="Resource_uqke4"]
+script = ExtResource("17_5reo4")
+name = "hp"
+type = 2
+value = 0
+
+[sub_resource type="Resource" id="Resource_uubc3"]
+script = ExtResource("3_nd3qc")
+fsm_name = "HUD"
+start_state = "Show"
+states = Array[ExtResource("4_bq0mi")]([SubResource("Resource_syn2j"), SubResource("Resource_siqgl"), SubResource("Resource_mdx8f")])
+events = PackedStringArray("COIN", "DAMAGE")
+variables = Array[ExtResource("17_5reo4")]([SubResource("Resource_iojty"), SubResource("Resource_uqke4")])
+
+[node name="RunCrafterDemo2D" type="Node2D" unique_id=2126543283]
+
+[node name="Background" type="ColorRect" parent="." unique_id=60683150]
+offset_right = 1920.0
+offset_bottom = 1080.0
+color = Color(0.09, 0.1, 0.13, 1)
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=1019478455 groups=["player"]]
+position = Vector2(500, 540)
+motion_mode = 1
+
+[node name="Body" type="Polygon2D" parent="Player" unique_id=1812885151]
+polygon = PackedVector2Array(-24, -24, 24, -24, 24, 24, -24, 24)
+
+[node name="Shape" type="CollisionShape2D" parent="Player" unique_id=1114058687]
+shape = SubResource("RectangleShape2D_1qntd")
+
+[node name="FSM" type="Node" parent="Player" unique_id=59538891]
+script = ExtResource("1_upnj2")
+fsm = SubResource("Resource_smri3")
+
+[node name="Coin1" type="Area2D" parent="." unique_id=2034105972]
+position = Vector2(800, 400)
+
+[node name="Body" type="Polygon2D" parent="Coin1" unique_id=504438657]
+color = Color(1, 0.85, 0.2, 1)
+polygon = PackedVector2Array(0, -18, 18, 0, 0, 18, -18, 0)
+
+[node name="Shape" type="CollisionShape2D" parent="Coin1" unique_id=2138766501]
+shape = SubResource("CircleShape2D_ltag6")
+
+[node name="FSM" type="Node" parent="Coin1" unique_id=1457720180]
+script = ExtResource("1_upnj2")
+fsm = ExtResource("18_dya7c")
+
+[node name="Coin2" type="Area2D" parent="." unique_id=1335718759]
+position = Vector2(1100, 650)
+
+[node name="Body" type="Polygon2D" parent="Coin2" unique_id=1301438306]
+color = Color(1, 0.85, 0.2, 1)
+polygon = PackedVector2Array(0, -18, 18, 0, 0, 18, -18, 0)
+
+[node name="Shape" type="CollisionShape2D" parent="Coin2" unique_id=1069300119]
+shape = SubResource("CircleShape2D_1q6bf")
+
+[node name="FSM" type="Node" parent="Coin2" unique_id=1160189118]
+script = ExtResource("1_upnj2")
+fsm = ExtResource("18_dya7c")
+
+[node name="Coin3" type="Area2D" parent="." unique_id=1110781182]
+position = Vector2(1400, 350)
+
+[node name="Body" type="Polygon2D" parent="Coin3" unique_id=809686774]
+color = Color(1, 0.85, 0.2, 1)
+polygon = PackedVector2Array(0, -18, 18, 0, 0, 18, -18, 0)
+
+[node name="Shape" type="CollisionShape2D" parent="Coin3" unique_id=1880646146]
+shape = SubResource("CircleShape2D_j8nsl")
+
+[node name="FSM" type="Node" parent="Coin3" unique_id=147713145]
+script = ExtResource("1_upnj2")
+fsm = ExtResource("18_dya7c")
+
+[node name="Coin4" type="Area2D" parent="." unique_id=564657118]
+position = Vector2(900, 800)
+
+[node name="Body" type="Polygon2D" parent="Coin4" unique_id=196568342]
+color = Color(1, 0.85, 0.2, 1)
+polygon = PackedVector2Array(0, -18, 18, 0, 0, 18, -18, 0)
+
+[node name="Shape" type="CollisionShape2D" parent="Coin4" unique_id=1409718561]
+shape = SubResource("CircleShape2D_dq1ig")
+
+[node name="FSM" type="Node" parent="Coin4" unique_id=685187762]
+script = ExtResource("1_upnj2")
+fsm = ExtResource("18_dya7c")
+
+[node name="Coin5" type="Area2D" parent="." unique_id=490129572]
+position = Vector2(1600, 700)
+
+[node name="Body" type="Polygon2D" parent="Coin5" unique_id=1381698231]
+color = Color(1, 0.85, 0.2, 1)
+polygon = PackedVector2Array(0, -18, 18, 0, 0, 18, -18, 0)
+
+[node name="Shape" type="CollisionShape2D" parent="Coin5" unique_id=618443315]
+shape = SubResource("CircleShape2D_bbrck")
+
+[node name="FSM" type="Node" parent="Coin5" unique_id=1307847223]
+script = ExtResource("1_upnj2")
+fsm = ExtResource("18_dya7c")
+
+[node name="TrafficLight" type="Node2D" parent="." unique_id=1953234997]
+position = Vector2(1700, 160)
+
+[node name="Body" type="Polygon2D" parent="TrafficLight" unique_id=1047742325]
+polygon = PackedVector2Array(40, 0, 38.63703, 10.352762, 34.641014, 20, 28.284271, 28.284271, 19.999998, 34.641018, 10.352763, 38.63703, -1.7484556e-06, 40, -10.352762, 38.63703, -20.000002, 34.641014, -28.284271, 28.284271, -34.641014, 20.000002, -38.63703, 10.352765, -40, -3.4969112e-06, -38.63703, -10.352763, -34.641014, -19.999998, -28.284273, -28.284267, -19.999996, -34.641018, -10.352759, -38.637035, 4.7699524e-07, -40, 10.35276, -38.63703, 19.999996, -34.641018, 28.284266, -28.284275, 34.641014, -20.000008, 38.637035, -10.352754)
+
+[node name="FSM" type="Node" parent="TrafficLight" unique_id=1072961858]
+script = ExtResource("1_upnj2")
+fsm = SubResource("Resource_ofwb6")
+
+[node name="HUD" type="Label" parent="." unique_id=2088804715]
+offset_left = 40.0
+offset_top = 30.0
+offset_right = 40.0
+offset_bottom = 30.0
+theme_override_font_sizes/font_size = 28
+
+[node name="FSM" type="Node" parent="HUD" unique_id=2036454281]
+script = ExtResource("1_upnj2")
+fsm = SubResource("Resource_uubc3")
