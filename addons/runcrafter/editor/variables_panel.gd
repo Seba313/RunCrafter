@@ -9,11 +9,35 @@ var ctx: Object
 var source: Resource
 var is_global: bool = false
 
+const LIVE_COLOR := Color(1.0, 0.6, 0.2)
+
+## Variable name -> value text received from the running game (empty when not playing).
+var _live: Dictionary = {}
+## Variable name -> Label showing its live value.
+var _live_labels: Dictionary = {}
+
+
+## Shows the values of the running game next to the variables (empty = hide them).
+func set_live(values: Dictionary) -> void:
+	_live = values
+	for n in _live_labels:
+		_update_live_label(n)
+
+
+func _update_live_label(var_name: String) -> void:
+	var l: Label = _live_labels.get(var_name)
+	if l == null or not is_instance_valid(l):
+		return
+	l.visible = _live.has(var_name)
+	l.text = "▶ %s" % _live.get(var_name, "")
+	l.tooltip_text = "Value in the running game: %s" % _live.get(var_name, "")
+
 
 func rebuild() -> void:
 	for c in get_children():
 		remove_child(c)
 		c.queue_free()
+	_live_labels.clear()
 	if source == null:
 		return
 	var s := EditorInterface.get_editor_scale()
@@ -121,6 +145,13 @@ func _make_variable_panel(v: RCVariable, s: float) -> Control:
 	if v.type == TYPE_OBJECT:
 		row.tooltip_text = "Object variables usually hold nodes assigned at runtime (Find Node, Instantiate, Trigger Event...)."
 	vb.add_child(row)
+	var live := Label.new()
+	live.add_theme_color_override("font_color", LIVE_COLOR)
+	live.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	live.mouse_filter = Control.MOUSE_FILTER_PASS
+	vb.add_child(live)
+	_live_labels[v.name] = live
+	_update_live_label(v.name)
 	return panel
 
 

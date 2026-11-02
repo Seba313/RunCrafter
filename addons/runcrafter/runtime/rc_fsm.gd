@@ -16,6 +16,8 @@ const FINISHED := "FINISHED"
 ## Events declared by this FSM (FINISHED is implicit).
 @export var events: PackedStringArray = PackedStringArray()
 @export var variables: Array[RCVariable] = []
+## Editor-only groups and comment notes drawn in the graph (not used at runtime).
+@export var groups: Array[RCGroup] = []
 
 var _var_map: Dictionary = {}
 var _state_map: Dictionary = {}
@@ -90,6 +92,7 @@ func snapshot() -> Dictionary:
 		"states": _clone_states(),
 		"global_transitions": _clone_transitions(global_transitions),
 		"variables": _clone_variables(),
+		"groups": _clone_groups(),
 	}
 
 
@@ -105,6 +108,9 @@ func apply_snapshot(snap: Dictionary) -> void:
 	states = tmp._clone_states()
 	global_transitions = _clone_transitions(snap.global_transitions)
 	variables = tmp._clone_variables()
+	if snap.has("groups"):
+		tmp.groups = snap.groups
+	groups = tmp._clone_groups()
 	emit_changed()
 
 
@@ -123,6 +129,16 @@ func _clone_variables() -> Array[RCVariable]:
 			var nv := clone_resource(v) as RCVariable
 			nv.value = v.get_value_copy()
 			out.append(nv)
+	return out
+
+
+func _clone_groups() -> Array[RCGroup]:
+	var out: Array[RCGroup] = []
+	for g in groups:
+		if g != null:
+			var ng := clone_resource(g) as RCGroup
+			ng.states = g.states.duplicate()
+			out.append(ng)
 	return out
 
 

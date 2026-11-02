@@ -100,12 +100,21 @@ func open_fsm(fsm_node: RCFsmComponent) -> void:
 
 ## Selecting the node that OWNS an FSM (like a GameObject in PlayMaker) loads its FSM
 ## into the RunCrafter editor without switching the main screen away from 2D/3D.
+## Selecting a node without an FSM shows an empty screen with an "Add FSM" button.
 func _on_selection_changed() -> void:
 	if _editor == null:
 		return
 	var nodes := EditorInterface.get_selection().get_selected_nodes()
-	if nodes.size() != 1 or nodes[0] is RCFsmComponent:
+	if nodes.size() != 1:
+		return
+	# Godot does not always call _edit() for the FSM node itself (e.g. while another
+	# FSM is open), so load it here as well.
+	if nodes[0] is RCFsmComponent:
+		if nodes[0] != _editor.get_edited_node():
+			_editor.edit_object(nodes[0])
 		return
 	var fsms := InspectorPlugin.find_fsms(nodes[0])
-	if not fsms.is_empty() and fsms[0] != _editor.get_edited_node():
+	if fsms.is_empty():
+		_editor.show_no_fsm(nodes[0])
+	elif fsms[0] != _editor.get_edited_node():
 		_editor.edit_object(fsms[0])

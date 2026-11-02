@@ -65,6 +65,11 @@ var _entered: Array[RCAction] = []
 var _seq_index: int = 0
 var _finished_sent: bool = false
 var _owner_cache: Node
+## Live variable values sent to the editor (debugger only).
+var _debug_vars_time: float = 0.0
+var _debug_vars_last: Dictionary = {}
+
+const DEBUG_VARS_INTERVAL := 0.2
 
 
 #region Lifecycle
@@ -95,6 +100,11 @@ func _process(delta: float) -> void:
 		return
 	state_time += delta
 	_run_updates(delta, false)
+	if EngineDebugger.is_active():
+		_debug_vars_time += delta
+		if _debug_vars_time >= DEBUG_VARS_INTERVAL:
+			_debug_vars_time = 0.0
+			_send_debug_vars()
 
 
 func _physics_process(delta: float) -> void:
@@ -470,6 +480,54 @@ func _send_debug(state_name: String, event: String, prev: String) -> void:
 		rel_path = str(get_tree().current_scene.get_path_to(self))
 	EngineDebugger.send_message("runcrafter:state", [fsm.resource_path if fsm else "", scene_file,
 			rel_path, str(get_path()), state_name, event, prev])
+	_send_debug_vars()
+
+
+## Sends the current values of the FSM and global variables to the editor (only when
+## something changed). Values are sent as short text, so any type can be shown.
+func _send_debug_vars() -> void:
+	if runtime == null:
+		return
+	var locals := {}
+	for v in runtime.variables:
+		if v:
+			locals[v.name] = _debug_text(v.value)
+	var globals := {}
+	for v in RCGlobals.get_runtime().variables:
+		if v:
+			globals[v.name] = _debug_text(v.value)
+	var data := {"locals": locals, "globals": globals}
+	if data == _debug_vars_last:
+		return
+	_debug_vars_last = data
+	var scene_file := ""
+	var rel_path := ""
+	if owner:
+		scene_file = owner.scene_file_path
+		rel_path = str(owner.get_path_to(self))
+	elif get_tree() and get_tree().current_scene:
+		scene_file = get_tree().current_scene.scene_file_path
+		rel_path = str(get_tree().current_scene.get_path_to(self))
+	EngineDebugger.send_message("runcrafter:vars", [fsm.resource_path if fsm else "", scene_file,
+			rel_path, str(get_path()), locals, globals])
+
+
+static func _debug_text(value: Variant) -> String:
+	var t: String
+	if value is Object:
+		if not is_instance_valid(value):
+			t = "<freed>"
+		elif value is Node:
+			t = "%s (%s)" % [value.name, value.get_class()]
+		elif value is Resource and not value.resource_path.is_empty():
+			t = value.resource_path.get_file()
+		else:
+			t = value.get_class()
+	elif value is String:
+		t = '"%s"' % value
+	else:
+		t = str(value)
+	return t if t.length() <= 80 else t.left(77) + "..."
 #endregion
 
 

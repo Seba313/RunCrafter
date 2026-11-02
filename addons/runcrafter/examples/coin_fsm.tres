@@ -1,6 +1,7 @@
 [gd_resource type="Resource" script_class="RCFsm" format=3 uid="uid://dg2fx7eug3utk"]
 
 [ext_resource type="Script" uid="uid://bmj01mutl1u1i" path="res://addons/runcrafter/runtime/rc_transition.gd" id="1_2avl6"]
+[ext_resource type="Script" uid="uid://dyehellkj1mem" path="res://addons/runcrafter/runtime/rc_group.gd" id="2_40r7g"]
 [ext_resource type="Script" uid="uid://cid20twgb0mgl" path="res://addons/runcrafter/runtime/rc_fsm.gd" id="2_eywbd"]
 [ext_resource type="Script" uid="uid://do02jihlr67dk" path="res://addons/runcrafter/runtime/rc_state.gd" id="3_5s0ws"]
 [ext_resource type="Script" uid="uid://cagerxp0io16t" path="res://addons/runcrafter/runtime/rc_action.gd" id="4_65w2p"]
@@ -28,7 +29,7 @@ to_state = "Collected"
 [sub_resource type="Resource" id="Resource_iu5hl"]
 script = ExtResource("3_5s0ws")
 state_name = "Spin"
-position = Vector2(40, 40)
+position = Vector2(20, -80)
 actions = Array[ExtResource("4_65w2p")]([SubResource("Resource_lvgi8"), SubResource("Resource_tg8kl")])
 transitions = Array[ExtResource("1_2avl6")]([SubResource("Resource_fytsp")])
 
@@ -43,6 +44,7 @@ script = ExtResource("8_u2680")
 property = "scale"
 to_expression = "Vector2(0, 0)"
 duration = 0.3
+editor_collapsed = true
 
 [sub_resource type="Resource" id="Resource_88qsi"]
 script = ExtResource("1_2avl6")
@@ -52,17 +54,18 @@ to_state = "Gone"
 [sub_resource type="Resource" id="Resource_rf1oh"]
 script = ExtResource("3_5s0ws")
 state_name = "Collected"
-position = Vector2(360, 40)
+position = Vector2(20, 40)
 actions = Array[ExtResource("4_65w2p")]([SubResource("Resource_id2bt"), SubResource("Resource_ftbdw")])
 transitions = Array[ExtResource("1_2avl6")]([SubResource("Resource_88qsi")])
 
 [sub_resource type="Resource" id="Resource_i5gsm"]
 script = ExtResource("9_sh3aw")
+editor_collapsed = true
 
 [sub_resource type="Resource" id="Resource_rcrug"]
 script = ExtResource("3_5s0ws")
 state_name = "Gone"
-position = Vector2(680, 40)
+position = Vector2(20, 160)
 actions = Array[ExtResource("4_65w2p")]([SubResource("Resource_i5gsm")])
 
 [resource]

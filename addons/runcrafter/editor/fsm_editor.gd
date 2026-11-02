@@ -14,17 +14,29 @@ const START_COLOR := Color(0.16, 0.55, 0.28)
 const DEBUG_COLOR := Color(0.95, 0.55, 0.10)
 const FINISHED := "FINISHED"
 
-enum { MENU_ADD_STATE, MENU_PASTE, MENU_SET_START, MENU_DUPLICATE, MENU_DELETE, MENU_COPY }
+enum { MENU_ADD_STATE, MENU_PASTE, MENU_SET_START, MENU_DUPLICATE, MENU_DELETE, MENU_COPY,
+		MENU_ADD_COMMENT, MENU_GROUP, MENU_UNGROUP_STATE, MENU_EDIT_GROUP, MENU_DELETE_GROUP }
 
 var plugin: EditorPlugin
 
 var _node: RCFsmComponent
+## Selected scene node that has no FSM yet (shown with an "Add FSM" button).
+var _bare_node: Node
 var _fsm: RCFsm
 var _globals: RCGlobals
 var _selected_state: String = ""
 var _debug_state: String = ""
 ## [from_state, event, to_state] of the last transition seen while debugging.
 var _debug_edge: Array = []
+## Live variable values from the running game: FSM node path -> [res_path, scene_file, rel_path, locals].
+var _live_fsms: Dictionary = {}
+## Live values of the global variables (shared by every FSM of the running game).
+var _live_globals: Dictionary = {}
+## Problems found in the edited FSM (see _collect_issues): {"states": {name: [[level, text]]}, "fsm": [[level, text]]}.
+var _issues: Dictionary = {}
+var _issues_btn: Button
+## Problem list at the top of the State panel (refilled without rebuilding the panel).
+var _issues_box: VBoxContainer
 var _clipboard: Array[RCState] = []
 var _refresh_queued: bool = false
 var _graph_nodes: Dictionary = {}
@@ -63,6 +75,12 @@ var _fsm_box: VBoxContainer
 var _log: RichTextLabel
 var _browser: ActionBrowser
 var _graph_menu: PopupMenu
+## Right-click menu of a group / comment frame.
+var _group_menu: PopupMenu
+## Index (in _fsm.groups) of the group the group menu was opened for.
+var _menu_group: int = -1
+## GraphFrame name -> index in _fsm.groups.
+var _frame_to_group: Dictionary = {}
 var _node_menu: PopupMenu
 var _transition_sub: PopupMenu
 var _global_sub: PopupMenu
@@ -76,6 +94,7 @@ func _ready() -> void:
 	auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	size_flags_horizontal = SIZE_EXPAND_FILL
 	size_flags_vertical = SIZE_EXPAND_FILL
+	theme = _make_compact_theme()
 	_globals = RCGlobals.load_for_editor()
 	_build_toolbar()
 
@@ -111,6 +130,7 @@ func _ready() -> void:
 	_graph.duplicate_nodes_request.connect(_on_duplicate_nodes_request)
 	_graph.copy_nodes_request.connect(_on_copy_nodes_request)
 	_graph.paste_nodes_request.connect(_on_paste_nodes_request)
+	_graph.graph_elements_linked_to_frame_request.connect(_on_linked_to_frame)
 	_split.add_child(_graph)
 
 	_tabs = TabContainer.new()
@@ -159,6 +179,9 @@ func _ready() -> void:
 	_graph_menu = PopupMenu.new()
 	add_child(_graph_menu)
 	_graph_menu.id_pressed.connect(_on_graph_menu)
+	_group_menu = PopupMenu.new()
+	add_child(_group_menu)
+	_group_menu.id_pressed.connect(_on_group_menu)
 	_node_menu = PopupMenu.new()
 	add_child(_node_menu)
 	_node_menu.id_pressed.connect(_on_node_menu)
@@ -242,6 +265,11 @@ func _build_toolbar() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = SIZE_EXPAND_FILL
 	bar.add_child(spacer)
+	_issues_btn = Button.new()
+	_issues_btn.flat = true
+	_issues_btn.visible = false
+	_issues_btn.pressed.connect(_select_next_issue)
+	bar.add_child(_issues_btn)
 	_debug_label = Label.new()
 	_debug_label.add_theme_color_override("font_color", DEBUG_COLOR)
 	bar.add_child(_debug_label)
@@ -276,6 +304,7 @@ func edit_object(o: Object) -> void:
 		_fsm = o
 	else:
 		return
+	_bare_node = null
 	_selected_state = ""
 	_debug_state = ""
 	if _fsm and not _fsm.states.is_empty():
@@ -285,9 +314,16 @@ func edit_object(o: Object) -> void:
 
 func clear_edit() -> void:
 	_set_node(null)
+	_bare_node = null
 	_fsm = null
 	_selected_state = ""
 	queue_refresh()
+
+
+## Shows the empty screen for a selected node without an FSM, with an "Add FSM" button.
+func show_no_fsm(n: Node) -> void:
+	clear_edit()
+	_bare_node = n
 
 
 func get_edited_node() -> RCFsmComponent:
@@ -309,9 +345,47 @@ func _on_node_property_list_changed() -> void:
 		queue_refresh()
 
 
+## "Create FSM" / "Add FSM" button: fills an empty RCFsmComponent, or adds a new one to a
+## selected node that has no FSM.
 func _create_fsm_for_node() -> void:
+	if _bare_node and is_instance_valid(_bare_node):
+		_add_fsm_component()
+		return
 	if _node == null or not is_instance_valid(_node):
 		return
+	var f := _new_fsm()
+	var ur := plugin.get_undo_redo()
+	ur.create_action("RunCrafter: Create FSM", UndoRedo.MERGE_DISABLE, _node)
+	ur.add_do_property(_node, "fsm", f)
+	ur.add_undo_property(_node, "fsm", _node.fsm)
+	ur.commit_action()
+	_fsm = f
+	_selected_state = f.start_state
+	queue_refresh()
+
+
+## Adds an RCFsmComponent with a new FSM as a child of the selected node (like adding a
+## PlayMakerFSM component to a GameObject) and opens it.
+func _add_fsm_component() -> void:
+	var target := _bare_node
+	var root := EditorInterface.get_edited_scene_root()
+	if target == null or not is_instance_valid(target) or root == null:
+		return
+	var comp := RCFsmComponent.new()
+	comp.name = "FSM"
+	comp.fsm = _new_fsm()
+	var ur := plugin.get_undo_redo()
+	ur.create_action("RunCrafter: Add FSM", UndoRedo.MERGE_DISABLE, target)
+	ur.add_do_method(target, "add_child", comp, true)
+	ur.add_do_property(comp, "owner", root)
+	ur.add_do_method(self, "edit_object", comp)
+	ur.add_do_reference(comp)
+	ur.add_undo_method(target, "remove_child", comp)
+	ur.add_undo_method(self, "show_no_fsm", target)
+	ur.commit_action()
+
+
+func _new_fsm() -> RCFsm:
 	var f := RCFsm.new()
 	f.fsm_name = "FSM"
 	var st := RCState.new()
@@ -319,14 +393,7 @@ func _create_fsm_for_node() -> void:
 	st.position = Vector2(80, 80)
 	f.states.append(st)
 	f.start_state = st.state_name
-	var ur := plugin.get_undo_redo()
-	ur.create_action("RunCrafter: Create FSM", UndoRedo.MERGE_DISABLE, _node)
-	ur.add_do_property(_node, "fsm", f)
-	ur.add_undo_property(_node, "fsm", _node.fsm)
-	ur.commit_action()
-	_fsm = f
-	_selected_state = st.state_name
-	queue_refresh()
+	return f
 #endregion
 
 
@@ -349,6 +416,8 @@ func modify(action_name: String, mutator: Callable, merge: bool = false, rebuild
 		_node.notify_property_list_changed()
 	if rebuild:
 		queue_refresh()
+	else:
+		_refresh_issues()
 
 
 func _restore(fsm: RCFsm, snap: Dictionary) -> void:
@@ -424,11 +493,19 @@ func _do_refresh() -> void:
 	_template_btn.disabled = not has_fsm
 	_save_btn.visible = has_fsm and _is_file_resource(_fsm)
 	if not has_fsm:
-		_create_btn.visible = _node != null
-		_placeholder_label.text = ("'%s' has no FSM yet." % _node.name) if _node else \
-				"Select a node with a RCFsmComponent (or a RCFsm .tres file) to edit it.\nAdd a RCFsmComponent as a child of any node to give it a state machine."
+		if _bare_node and not is_instance_valid(_bare_node):
+			_bare_node = null
+		_create_btn.visible = _node != null or _bare_node != null
+		_create_btn.text = "Add FSM" if _bare_node else "Create FSM"
+		if _node:
+			_placeholder_label.text = "'%s' has no FSM yet." % _node.name
+		elif _bare_node:
+			_placeholder_label.text = "'%s' has no FSM.\nAdd one to give this node a state machine." % _bare_node.name
+		else:
+			_placeholder_label.text = "Select a node with a RCFsmComponent (or a RCFsm .tres file) to edit it.\nAdd a RCFsmComponent as a child of any node to give it a state machine."
 		_title_label.text = "RunCrafter"
 		_fsm_picker.visible = false
+		_issues_btn.visible = false
 		_clear_graph()
 		return
 	var title := "FSM: %s" % _fsm.fsm_name
@@ -445,6 +522,7 @@ func _do_refresh() -> void:
 	_vars_panel.rebuild()
 	_globals_panel.source = _globals
 	_globals_panel.rebuild()
+	_update_live_values()
 	_rebuild_global_events()
 	_rebuild_fsm_panel()
 
@@ -479,15 +557,17 @@ func _clear_children(c: Node) -> void:
 #region Graph
 func _clear_graph() -> void:
 	for c in _graph.get_children():
-		if c is GraphNode:
+		if c is GraphNode or c is GraphFrame:
 			_graph.remove_child(c)
 			c.queue_free()
 	_graph_nodes.clear()
 	_node_to_state.clear()
+	_frame_to_group.clear()
 
 
 func _rebuild_graph() -> void:
 	_clear_graph()
+	_issues = _collect_issues()
 	var s := EditorInterface.get_editor_scale()
 	for i in _fsm.states.size():
 		var st := _fsm.states[i]
@@ -496,23 +576,16 @@ func _rebuild_graph() -> void:
 		var gn := GraphNode.new()
 		gn.name = "S%d" % i
 		gn.position_offset = st.position
-		gn.custom_minimum_size = Vector2(170, 0) * s
-		gn.tooltip_text = st.description
-		var head := Label.new()
-		var info := "%d action%s" % [st.actions.size(), "" if st.actions.size() == 1 else "s"]
-		if st.sequence:
-			info += " (sequence)"
-		head.text = info
-		head.add_theme_font_size_override("font_size", int(11 * s))
-		head.modulate = Color(1, 1, 1, 0.65)
-		head.mouse_filter = Control.MOUSE_FILTER_PASS
-		gn.add_child(head)
+		# Compact like PlayMaker: title bar + one short row per event, no extra lines.
+		gn.custom_minimum_size = Vector2(110, 0) * s
+		gn.add_theme_constant_override("separation", 0)
 		for j in st.transitions.size():
 			var t := st.transitions[j]
 			# The whole event row is the drag handle of the transition (like PlayMaker).
 			var l := Label.new()
 			l.text = t.event if not t.event.is_empty() else "(no event)"
-			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			l.add_theme_font_size_override("font_size", _graph_font_size())
 			l.mouse_filter = Control.MOUSE_FILTER_STOP
 			l.mouse_default_cursor_shape = Control.CURSOR_DRAG
 			l.tooltip_text = "Drag onto a state to connect this transition. Right-click for options."
@@ -527,9 +600,414 @@ func _rebuild_graph() -> void:
 		_graph_nodes[st.state_name] = gn
 		_node_to_state[String(gn.name)] = st.state_name
 		_style_graph_node(gn, st)
+	_build_frames()
 	if _graph_nodes.has(_selected_state):
 		_graph.set_selected(_graph_nodes[_selected_state])
+	_fill_issues_box()
 	_graph.queue_redraw()
+
+
+#region Groups and comments (editor-only frames, like Bolt's groups)
+const GROUP_COLORS: Array[Color] = [Color(0.35, 0.5, 0.7), Color(0.35, 0.6, 0.4), Color(0.7, 0.55, 0.3),
+		Color(0.65, 0.35, 0.35), Color(0.55, 0.4, 0.7), Color(0.45, 0.45, 0.45)]
+
+
+func _build_frames() -> void:
+	var s := EditorInterface.get_editor_scale()
+	for i in _fsm.groups.size():
+		var g := _fsm.groups[i]
+		if g == null:
+			continue
+		var fr := GraphFrame.new()
+		fr.name = "G%d" % i
+		fr.title = g.title if not g.title.is_empty() else ("Comment" if g.is_comment() else "Group")
+		fr.position_offset = g.position
+		_style_frame(fr, g, s)
+		if g.is_comment():
+			fr.autoshrink_enabled = false
+			fr.resizable = true
+			var l := Label.new()
+			l.text = g.text
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			l.size_flags_vertical = SIZE_EXPAND_FILL
+			l.mouse_filter = Control.MOUSE_FILTER_PASS
+			# A wrapping label needs a known width, otherwise it asks for a huge height.
+			var text_width := func(w: float) -> float: return maxf(40.0 * s, w - 20.0 * s)
+			l.custom_minimum_size.x = text_width.call(g.size.x)
+			fr.add_child(l)
+			fr.size = g.size
+			fr.resize_request.connect(func(new_size: Vector2) -> void:
+				l.custom_minimum_size.x = text_width.call(new_size.x)
+				fr.size = new_size
+			)
+			fr.resize_end.connect(func(_s: Vector2) -> void: _on_end_node_move())
+		else:
+			fr.autoshrink_enabled = true
+			fr.autoshrink_margin = int(16 * s)
+			fr.tooltip_text = g.text
+		fr.gui_input.connect(_on_frame_gui_input.bind(i))
+		_graph.add_child(fr)
+		_frame_to_group[String(fr.name)] = i
+		for n in g.states:
+			if _graph_nodes.has(n):
+				_graph.attach_graph_element_to_frame(_graph_nodes[n].name, fr.name)
+
+
+## Translucent frame, so transitions drawn behind it stay visible.
+func _style_frame(fr: GraphFrame, g: RCGroup, s: float) -> void:
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color(g.color, 0.16)
+	panel.border_color = Color(g.color, 0.7)
+	panel.set_border_width_all(int(1 * s))
+	panel.set_corner_radius_all(int(6 * s))
+	panel.set_content_margin_all(8 * s)
+	var panel_sel: StyleBoxFlat = panel.duplicate()
+	panel_sel.border_color = Color(g.color.lightened(0.4), 0.95)
+	panel_sel.set_border_width_all(int(2 * s))
+	fr.add_theme_stylebox_override("panel", panel)
+	fr.add_theme_stylebox_override("panel_selected", panel_sel)
+	var tb := StyleBoxFlat.new()
+	tb.bg_color = Color(g.color, 0.75)
+	tb.corner_radius_top_left = int(6 * s)
+	tb.corner_radius_top_right = int(6 * s)
+	tb.content_margin_left = 8 * s
+	tb.content_margin_right = 8 * s
+	tb.content_margin_top = 2 * s
+	tb.content_margin_bottom = 2 * s
+	var tbs: StyleBoxFlat = tb.duplicate()
+	tbs.bg_color = Color(g.color.lightened(0.2), 0.9)
+	fr.add_theme_stylebox_override("titlebar", tb)
+	fr.add_theme_stylebox_override("titlebar_selected", tbs)
+
+
+## Saves the position (and, for comments, the size) of every frame.
+func _store_frame_rects() -> void:
+	for fname in _frame_to_group:
+		var i: int = _frame_to_group[fname]
+		var fr := _graph.get_node_or_null(NodePath(fname)) as GraphFrame
+		if fr == null or i >= _fsm.groups.size():
+			continue
+		_fsm.groups[i].position = fr.position_offset
+		if _fsm.groups[i].is_comment():
+			_fsm.groups[i].size = fr.size
+
+
+func _on_frame_gui_input(ev: InputEvent, index: int) -> void:
+	if not ev is InputEventMouseButton or not ev.pressed:
+		return
+	if ev.button_index == MOUSE_BUTTON_RIGHT:
+		_menu_group = index
+		var g := _fsm.groups[index]
+		_group_menu.clear()
+		_group_menu.add_item("Edit Comment…" if g.is_comment() else "Edit Group…", MENU_EDIT_GROUP)
+		_group_menu.add_item("Delete Comment" if g.is_comment() else "Ungroup (keep states)", MENU_DELETE_GROUP)
+		_popup_at_mouse(_group_menu)
+		get_viewport().set_input_as_handled()
+	elif ev.button_index == MOUSE_BUTTON_LEFT and ev.double_click:
+		_edit_group(index)
+		get_viewport().set_input_as_handled()
+
+
+func _on_group_menu(id: int) -> void:
+	if _menu_group < 0 or _menu_group >= _fsm.groups.size():
+		return
+	var g := _fsm.groups[_menu_group]
+	match id:
+		MENU_EDIT_GROUP:
+			_edit_group(_menu_group)
+		MENU_DELETE_GROUP:
+			modify("Delete Comment" if g.is_comment() else "Ungroup", func() -> void: _fsm.groups.erase(g))
+
+
+func _add_comment(pos: Vector2) -> void:
+	var g := RCGroup.new()
+	g.title = "Comment"
+	g.text = "Double-click to edit."
+	g.position = pos
+	g.color = GROUP_COLORS[4]
+	modify("Add Comment", func() -> void: _fsm.groups.append(g))
+	_edit_group.call_deferred(_fsm.groups.size() - 1)
+
+
+func _group_states(names: Array[String]) -> void:
+	if names.is_empty():
+		return
+	var g := RCGroup.new()
+	g.title = "Group"
+	g.color = GROUP_COLORS[_fsm.groups.size() % GROUP_COLORS.size()]
+	g.states = PackedStringArray(names)
+	modify("Group States", func() -> void:
+		_remove_from_groups(names)
+		_fsm.groups.append(g)
+	)
+	_edit_group.call_deferred(_fsm.groups.size() - 1)
+
+
+## Takes states out of their groups; groups left empty are removed.
+func _remove_from_groups(names: Array[String]) -> void:
+	for g: RCGroup in _fsm.groups.duplicate():
+		if g.is_comment():
+			continue
+		for n in names:
+			var i := g.states.find(n)
+			if i >= 0:
+				g.states.remove_at(i)
+		if g.states.is_empty():
+			_fsm.groups.erase(g)
+
+
+func _group_of_state(state_name: String) -> int:
+	for i in _fsm.groups.size():
+		if _fsm.groups[i] and not _fsm.groups[i].is_comment() and _fsm.groups[i].states.has(state_name):
+			return i
+	return -1
+
+
+## States dropped onto a group frame join that group (comments do not take states).
+func _on_linked_to_frame(elements: Array, frame: StringName) -> void:
+	if not _frame_to_group.has(String(frame)):
+		return
+	var g := _fsm.groups[_frame_to_group[String(frame)]]
+	if g.is_comment():
+		return
+	var names: Array[String] = []
+	for e in elements:
+		var n := _state_of(e)
+		if not n.is_empty() and not g.states.has(n):
+			names.append(n)
+	if names.is_empty():
+		return
+	modify("Add to Group", func() -> void:
+		_remove_from_groups(names)
+		if not _fsm.groups.has(g):
+			_fsm.groups.append(g)
+		for n in names:
+			g.states.append(n)
+	)
+
+
+## Dialog to edit the title, text and color of a group or comment.
+func _edit_group(index: int) -> void:
+	if index < 0 or index >= _fsm.groups.size():
+		return
+	var g := _fsm.groups[index]
+	var es := EditorInterface.get_editor_scale()
+	var d := ConfirmationDialog.new()
+	d.title = "Edit Comment" if g.is_comment() else "Edit Group"
+	var vb := VBoxContainer.new()
+	vb.custom_minimum_size = Vector2(340, 0) * es
+	d.add_child(vb)
+	var title_edit := LineEdit.new()
+	title_edit.text = g.title
+	title_edit.placeholder_text = "Title"
+	vb.add_child(title_edit)
+	var text_edit := TextEdit.new()
+	text_edit.text = g.text
+	text_edit.placeholder_text = "Comment text…" if g.is_comment() else "Notes (shown as a tooltip)…"
+	text_edit.custom_minimum_size.y = 100 * es
+	text_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	vb.add_child(text_edit)
+	var colors := HBoxContainer.new()
+	vb.add_child(colors)
+	var chosen := [g.color]
+	var cp := ColorPickerButton.new()
+	cp.color = g.color
+	cp.custom_minimum_size = Vector2(40, 0) * es
+	cp.color_changed.connect(func(c: Color) -> void: chosen[0] = c)
+	for c in GROUP_COLORS:
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(22, 22) * es
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = c
+		sb.set_corner_radius_all(int(3 * es))
+		b.add_theme_stylebox_override("normal", sb)
+		b.add_theme_stylebox_override("hover", sb)
+		b.pressed.connect(func() -> void:
+			chosen[0] = c
+			cp.color = c
+		)
+		colors.add_child(b)
+	colors.add_child(cp)
+	d.confirmed.connect(func() -> void:
+		var t := title_edit.text
+		var x := text_edit.text
+		var c: Color = chosen[0]
+		modify("Edit Comment" if g.is_comment() else "Edit Group", func() -> void:
+			g.title = t
+			g.text = x
+			g.color = c
+		)
+	)
+	d.visibility_changed.connect(func() -> void:
+		if not d.visible:
+			d.queue_free()
+	)
+	add_child(d)
+	d.popup_centered()
+	title_edit.grab_focus()
+	title_edit.select_all()
+#endregion
+
+
+#region Problem checks (shown in the editor before the game runs)
+const ISSUE_WARNING := 1
+const ISSUE_ERROR := 2
+const ISSUE_COLORS := {1: Color(1.0, 0.8, 0.3), 2: Color(1.0, 0.4, 0.35)}
+
+
+## Finds problems that would make the FSM misbehave at runtime: missing targets,
+## variables or states, syntax errors in expressions, unconnected or unreachable parts.
+func _collect_issues() -> Dictionary:
+	var by_state := {}
+	var general: Array = []
+	if _fsm == null:
+		return {"states": by_state, "fsm": general}
+	if _fsm.states.is_empty():
+		general.append([ISSUE_WARNING, "The FSM has no states."])
+	elif _fsm.get_state(_fsm.start_state) == null:
+		general.append([ISSUE_ERROR, "No start state is set (right-click a state > Set as Start State)."])
+	for gt in _fsm.global_transitions:
+		if gt and not gt.to_state.is_empty() and _fsm.get_state(gt.to_state) == null:
+			general.append([ISSUE_ERROR, "Global transition '%s' leads to a missing state '%s'." % [gt.event, gt.to_state]])
+	var var_names := {}
+	for v in _fsm.variables:
+		if v:
+			var_names[v.name] = true
+	if _globals:
+		for v in _globals.variables:
+			if v:
+				var_names[v.name] = true
+				var_names["g:" + v.name] = true
+	var owner_node: Node = null
+	if _node and is_instance_valid(_node) and _node.is_inside_tree():
+		owner_node = _node.get_node_or_null(_node.owner_path)
+	# States reachable by a transition, a global transition or an action that names them.
+	var reached := {_fsm.start_state: true}
+	for gt in _fsm.global_transitions:
+		if gt:
+			reached[gt.to_state] = true
+	for st in _fsm.states:
+		if st == null:
+			continue
+		for t in st.transitions:
+			if t and t.to_state != st.state_name:
+				reached[t.to_state] = true
+		for a in st.actions:
+			if a:
+				for p in _action_properties(a):
+					var val: Variant = a.get(p.name)
+					if val is String:
+						reached[val] = true
+	for st in _fsm.states:
+		if st == null:
+			continue
+		var list: Array = []
+		if not reached.has(st.state_name):
+			list.append([ISSUE_WARNING, "No transition leads to this state."])
+		for t in st.transitions:
+			if t == null:
+				continue
+			var ev_name := t.event if not t.event.is_empty() else "(no event)"
+			if t.event.is_empty():
+				list.append([ISSUE_WARNING, "A transition has no event."])
+			if t.to_state.is_empty():
+				list.append([ISSUE_WARNING, "Event %s is not connected to a state." % ev_name])
+			elif _fsm.get_state(t.to_state) == null:
+				list.append([ISSUE_ERROR, "Event %s leads to a missing state '%s'." % [ev_name, t.to_state]])
+		for a in st.actions:
+			if a == null:
+				list.append([ISSUE_ERROR, "An action is missing (its script was deleted?)."])
+			elif a.enabled:
+				_check_action(a, var_names, owner_node, list)
+		if not list.is_empty():
+			by_state[st.state_name] = list
+	return {"states": by_state, "fsm": general}
+
+
+func _check_action(a: RCAction, var_names: Dictionary, owner_node: Node, list: Array) -> void:
+	var title := a.get_title()
+	for p in _action_properties(a):
+		if p.usage & (PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP):
+			continue
+		var prop: String = p.name
+		var label := prop.capitalize()
+		if a.bindings.has(prop):
+			var bound := str(a.bindings[prop])
+			if not var_names.has(bound):
+				list.append([ISSUE_ERROR, "%s: %s uses a missing variable '%s'." % [title, label, bound]])
+			continue
+		var val: Variant = a.get(prop)
+		if val is NodePath:
+			if owner_node and not val.is_empty() and owner_node.get_node_or_null(val) == null:
+				list.append([ISSUE_WARNING, "%s: %s – node '%s' not found (fine if it is created while the game runs)." % [title, label, val]])
+		elif val is String and not val.is_empty():
+			if PropertyRow.is_variable_property(prop) and not var_names.has(val):
+				list.append([ISSUE_ERROR, "%s: %s – variable '%s' does not exist." % [title, label, val]])
+			elif prop.ends_with("expression"):
+				var e := Expression.new()
+				if e.parse(val, PackedStringArray(var_names.keys())) != OK:
+					list.append([ISSUE_ERROR, "%s: %s – %s in '%s'." % [title, label, e.get_error_text(), val]])
+
+
+## Highest problem level of a state (0 = none).
+func _issue_level(state_name: String) -> int:
+	var level := 0
+	for issue in _issues.get("states", {}).get(state_name, []):
+		level = maxi(level, issue[0])
+	return level
+
+
+## Recomputes the problems after an edit that does not rebuild the whole editor.
+func _refresh_issues() -> void:
+	_issues = _collect_issues()
+	_restyle_graph()
+	_fill_issues_box()
+
+
+func _fill_issues_box() -> void:
+	var total := 0
+	var errors := 0
+	var lines := PackedStringArray()
+	for issue in _issues.get("fsm", []):
+		total += 1
+		errors += 1 if issue[0] == ISSUE_ERROR else 0
+		lines.append(issue[1])
+	var by_state: Dictionary = _issues.get("states", {})
+	for n in by_state:
+		for issue in by_state[n]:
+			total += 1
+			errors += 1 if issue[0] == ISSUE_ERROR else 0
+			lines.append("%s: %s" % [n, issue[1]])
+	if _issues_btn:
+		_issues_btn.visible = total > 0
+		_issues_btn.text = "%d problem%s" % [total, "" if total == 1 else "s"]
+		_issues_btn.icon = EditorInterface.get_editor_theme().get_icon(
+				"StatusError" if errors > 0 else "StatusWarning", "EditorIcons")
+		_issues_btn.add_theme_color_override("font_color", ISSUE_COLORS[ISSUE_ERROR if errors > 0 else ISSUE_WARNING])
+		_issues_btn.tooltip_text = "\n".join(lines) + "\n\nClick to select the next state with a problem."
+	if _issues_box == null or not is_instance_valid(_issues_box):
+		return
+	_clear_children(_issues_box)
+	var list: Array = _issues.get("fsm", []) + by_state.get(_selected_state, [])
+	for issue in list:
+		var l := Label.new()
+		l.text = "⚠ " + issue[1]
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.add_theme_color_override("font_color", ISSUE_COLORS[issue[0]])
+		_issues_box.add_child(l)
+
+
+## Toolbar problem counter: selects the next state that has a problem.
+func _select_next_issue() -> void:
+	var names: Array = _issues.get("states", {}).keys()
+	if names.is_empty():
+		return
+	var i := names.find(_selected_state)
+	var next: String = names[(i + 1) % names.size()]
+	if _graph_nodes.has(next):
+		_graph.set_selected(_graph_nodes[next])
+		_graph.scroll_offset = _graph_nodes[next].position_offset * _graph.zoom - _graph.size * 0.4
+#endregion
 
 
 #region Transition drawing
@@ -581,7 +1059,7 @@ func _draw_links() -> void:
 
 ## Vertical center (graph-local) of the event row of transition [param index].
 func _row_y(gn: GraphNode, index: int) -> float:
-	var row := gn.get_child(index + 1) as Control
+	var row := gn.get_child(index) as Control
 	if row == null:
 		return _title_y(gn)
 	return gn.position.y + (row.position.y + row.size.y * 0.5) * gn.scale.y
@@ -736,8 +1214,10 @@ func _style_graph_node(gn: GraphNode, st: RCState) -> void:
 	sb.corner_radius_top_right = int(5 * s)
 	sb.content_margin_left = 8 * s
 	sb.content_margin_right = 8 * s
-	sb.content_margin_top = 4 * s
-	sb.content_margin_bottom = 4 * s
+	sb.content_margin_top = 2 * s
+	sb.content_margin_bottom = 2 * s
+	if st.transitions.is_empty():
+		sb.set_corner_radius_all(int(5 * s))
 	gn.add_theme_stylebox_override("titlebar", sb)
 	var sbs: StyleBoxFlat = sb.duplicate()
 	sbs.bg_color = col.lightened(0.25)
@@ -745,17 +1225,77 @@ func _style_graph_node(gn: GraphNode, st: RCState) -> void:
 	for c in gn.get_titlebar_hbox().get_children():
 		if c is Label:
 			c.add_theme_color_override("font_color", Color.WHITE)
+			c.add_theme_font_size_override("font_size", _graph_font_size())
+			c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			c.size_flags_horizontal = SIZE_EXPAND_FILL
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color(0.13, 0.13, 0.15, 0.95)
+	panel.corner_radius_bottom_left = int(5 * s)
+	panel.corner_radius_bottom_right = int(5 * s)
+	panel.content_margin_left = 6 * s
+	panel.content_margin_right = 6 * s
+	panel.content_margin_top = 0 if st.transitions.is_empty() else 1 * s
+	panel.content_margin_bottom = 0 if st.transitions.is_empty() else 3 * s
+	var panel_sel: StyleBoxFlat = panel.duplicate()
+	panel_sel.set_border_width_all(int(1 * s))
+	panel_sel.border_color = Color(1, 1, 1, 0.6)
 	if is_debug:
-		var panel := StyleBoxFlat.new()
-		panel.bg_color = Color(0.12, 0.12, 0.14, 0.95)
 		panel.set_border_width_all(int(2 * s))
 		panel.border_color = DEBUG_COLOR
-		panel.set_content_margin_all(6 * s)
-		gn.add_theme_stylebox_override("panel", panel)
-		gn.add_theme_stylebox_override("panel_selected", panel)
-	else:
-		gn.remove_theme_stylebox_override("panel")
-		gn.remove_theme_stylebox_override("panel_selected")
+		panel_sel = panel
+	var level := _issue_level(st.state_name)
+	if level > 0 and not is_debug:
+		var ic: Color = ISSUE_COLORS[level]
+		for box: StyleBoxFlat in [sb, sbs, panel, panel_sel]:
+			box.set_border_width_all(int(2 * s))
+			box.border_color = ic
+		sb.border_width_bottom = 0
+		sbs.border_width_bottom = 0
+		panel.border_width_top = 0
+		panel_sel.border_width_top = 0
+		gn.title = "⚠ " + gn.title
+	gn.add_theme_stylebox_override("panel", panel)
+	gn.add_theme_stylebox_override("panel_selected", panel_sel)
+	var tip := "%d action%s" % [st.actions.size(), "" if st.actions.size() == 1 else "s"]
+	if st.sequence:
+		tip += " (sequence)"
+	if not st.description.is_empty():
+		tip = st.description + "\n" + tip
+	for issue in _issues.get("states", {}).get(st.state_name, []):
+		tip += "\n⚠ " + issue[1]
+	gn.tooltip_text = tip
+
+
+## Denser variant of the editor theme (PlayMaker-like): slightly smaller font, thinner
+## buttons and fields, less space between rows. Anything not set here falls back to the
+## editor theme.
+func _make_compact_theme() -> Theme:
+	var et := EditorInterface.get_editor_theme()
+	var s := EditorInterface.get_editor_scale()
+	var t := Theme.new()
+	t.default_font_size = maxi(10, roundi(_editor_font_size() * 0.9))
+	for type in ["VBoxContainer", "HBoxContainer"]:
+		t.set_constant("separation", type, roundi(2 * s))
+	for type in ["Label", "Button", "LineEdit", "OptionButton", "MenuButton", "CheckBox", "CheckButton",
+			"ColorPickerButton", "TextEdit", "TabContainer", "TabBar"]:
+		for sb_name in et.get_stylebox_list(type):
+			var sb := et.get_stylebox(sb_name, type).duplicate() as StyleBox
+			if sb.content_margin_top > 2 * s:
+				sb.content_margin_top = 2 * s
+			if sb.content_margin_bottom > 2 * s:
+				sb.content_margin_bottom = 2 * s
+			t.set_stylebox(sb_name, type, sb)
+	return t
+
+
+## Font size of state titles and event rows in the graph (a bit smaller than the editor's).
+func _graph_font_size() -> int:
+	return maxi(10, roundi(_editor_font_size() * 0.9))
+
+
+func _editor_font_size() -> int:
+	var fs := EditorInterface.get_editor_theme().default_font_size
+	return fs if fs > 0 else roundi(14 * EditorInterface.get_editor_scale())
 
 
 func _restyle_graph() -> void:
@@ -788,6 +1328,7 @@ func _on_end_node_move() -> void:
 			var st := _fsm.get_state(n)
 			if st:
 				st.position = _graph_nodes[n].position_offset
+		_store_frame_rects()
 	, false, false)
 
 
@@ -928,13 +1469,20 @@ func _on_transition_event_chosen(id: int) -> void:
 
 func _on_delete_nodes_request(nodes: Array[StringName]) -> void:
 	var names: Array[String] = []
+	var groups: Array[RCGroup] = []
 	for n in nodes:
 		var s := _state_of(n)
 		if not s.is_empty():
 			names.append(s)
-	if names.is_empty():
+		elif _frame_to_group.has(String(n)):
+			groups.append(_fsm.groups[_frame_to_group[String(n)]])
+	if names.is_empty() and groups.is_empty():
 		return
-	modify("Delete State", func() -> void: _delete_states(names))
+	modify("Delete", func() -> void:
+		for g in groups:
+			_fsm.groups.erase(g)
+		_delete_states(names)
+	)
 
 
 func _delete_states(names: Array[String]) -> void:
@@ -953,6 +1501,16 @@ func _delete_states(names: Array[String]) -> void:
 	_fsm.global_transitions = keep
 	if names.has(_fsm.start_state):
 		_fsm.start_state = _fsm.states[0].state_name if not _fsm.states.is_empty() else ""
+	for g: RCGroup in _fsm.groups.duplicate():
+		if g.is_comment():
+			continue
+		for n in names:
+			var i := g.states.find(n)
+			if i >= 0:
+				g.states.remove_at(i)
+		# A group whose states are all gone disappears (it must not turn into a comment).
+		if g.states.is_empty():
+			_fsm.groups.erase(g)
 
 
 func _selected_state_names() -> Array[String]:
@@ -1002,6 +1560,10 @@ func _on_graph_popup_request(at_position: Vector2) -> void:
 	_graph_menu.add_item("Add State", MENU_ADD_STATE)
 	_graph_menu.add_item("Paste State(s)", MENU_PASTE)
 	_graph_menu.set_item_disabled(1, _clipboard.is_empty())
+	_graph_menu.add_separator()
+	_graph_menu.add_item("Add Comment", MENU_ADD_COMMENT)
+	if _selected_state_names().size() > 0:
+		_graph_menu.add_item("Group Selected States", MENU_GROUP)
 	_popup_at_mouse(_graph_menu)
 
 
@@ -1011,15 +1573,47 @@ func _on_graph_menu(id: int) -> void:
 			_add_state(_menu_pos)
 		MENU_PASTE:
 			_on_paste_nodes_request()
+		MENU_ADD_COMMENT:
+			_add_comment(_menu_pos)
+		MENU_GROUP:
+			_group_states(_selected_state_names())
 
 
 func _on_graph_node_gui_input(ev: InputEvent, state_name: String) -> void:
-	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_RIGHT:
+	if not ev is InputEventMouseButton or not ev.pressed:
+		return
+	# The whole area below the title bar belongs to the event rows (including the side
+	# margins), so a slightly missed row starts a link instead of moving the node.
+	# The node is moved by its title bar.
+	if _graph_nodes.has(state_name):
+		var row := _transition_row_at(_graph_nodes[state_name], ev.position.y)
+		if row >= 0:
+			_on_transition_row_input(ev, state_name, row)
+			return
+	if ev.button_index == MOUSE_BUTTON_RIGHT:
 		_menu_state = state_name
 		if _graph_nodes.has(state_name):
 			_graph.set_selected(_graph_nodes[state_name])
 		_show_node_menu()
 		get_viewport().set_input_as_handled()
+
+
+## Index of the event row nearest to [param y] (GraphNode-local), or -1 on the title bar.
+func _transition_row_at(gn: GraphNode, y: float) -> int:
+	if gn.get_child_count() == 0:
+		return -1
+	var tb := gn.get_titlebar_hbox()
+	if y <= tb.position.y + tb.size.y:
+		return -1
+	var best := -1
+	var best_dist := INF
+	for i in gn.get_child_count():
+		var row := gn.get_child(i) as Control
+		var dist := absf(y - (row.position.y + row.size.y * 0.5))
+		if dist < best_dist:
+			best = i
+			best_dist = dist
+	return best
 
 
 func _show_node_menu() -> void:
@@ -1038,6 +1632,11 @@ func _show_node_menu() -> void:
 	_node_menu.add_item("Copy", MENU_COPY)
 	_node_menu.add_item("Duplicate", MENU_DUPLICATE)
 	_node_menu.add_item("Delete", MENU_DELETE)
+	_node_menu.add_separator()
+	var sel := _selected_state_names()
+	_node_menu.add_item("Group Selected States" if sel.size() > 1 else "Put in a Group", MENU_GROUP)
+	if _group_of_state(_menu_state) >= 0:
+		_node_menu.add_item("Remove from Group", MENU_UNGROUP_STATE)
 	_popup_at_mouse(_node_menu)
 
 
@@ -1053,6 +1652,15 @@ func _on_node_menu(id: int) -> void:
 		MENU_DELETE:
 			var names: Array[String] = [_menu_state]
 			modify("Delete State", func() -> void: _delete_states(names))
+		MENU_GROUP:
+			var sel := _selected_state_names()
+			if not sel.has(_menu_state):
+				sel.clear()
+				sel.append(_menu_state)
+			_group_states(sel)
+		MENU_UNGROUP_STATE:
+			var one: Array[String] = [_menu_state]
+			modify("Remove from Group", func() -> void: _remove_from_groups(one))
 
 
 func _popup_at_mouse(menu: PopupMenu) -> void:
@@ -1309,6 +1917,7 @@ func _section(parent: Control, text: String) -> void:
 
 func _rebuild_state_panel() -> void:
 	_clear_children(_state_box)
+	_issues_box = null
 	var st := _fsm.get_state(_selected_state) if _fsm else null
 	if st == null:
 		var l := Label.new()
@@ -1369,6 +1978,9 @@ func _rebuild_state_panel() -> void:
 		modify("Set State Description", func() -> void: st.description = t, true, false)
 	)
 	_state_box.add_child(desc)
+	_issues_box = VBoxContainer.new()
+	_state_box.add_child(_issues_box)
+	_fill_issues_box()
 
 	# Transitions
 	_section(_state_box, "Transitions (event → state)")
@@ -1675,6 +2287,10 @@ func _rename_state(old_name: String, new_name: String) -> void:
 				t.to_state = new_name
 		if _fsm.start_state == old_name:
 			_fsm.start_state = new_name
+		for g in _fsm.groups:
+			var i := g.states.find(old_name)
+			if i >= 0:
+				g.states[i] = new_name
 	)
 	_selected_state = new_name
 #endregion
@@ -2059,7 +2675,30 @@ func on_debug_stopped() -> void:
 	_debug_state = ""
 	_debug_edge = []
 	_debug_label.text = ""
+	_live_fsms.clear()
+	_live_globals = {}
+	_update_live_values()
 	_restyle_graph()
+
+
+## Live variable values from a running FSM (see RCFsmComponent._send_debug_vars).
+func on_debug_vars(data: Array) -> void:
+	if data.size() < 6:
+		return
+	_live_fsms[data[3]] = [data[0], data[1], data[2], data[4]]
+	_live_globals = data[5]
+	_update_live_values()
+
+
+func _update_live_values() -> void:
+	var locals := {}
+	for k in _live_fsms:
+		var e: Array = _live_fsms[k]
+		if _matches_debug(e[0], e[1], e[2]):
+			locals = e[3]
+			break
+	_vars_panel.set_live(locals)
+	_globals_panel.set_live(_live_globals)
 
 
 func _matches_debug(res_path: String, scene_file: String, rel_path: String) -> bool:

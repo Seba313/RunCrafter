@@ -1,7 +1,7 @@
 @tool
 extends EditorDebuggerPlugin
 ## Receives state changes from running games and forwards them to the FSM editor
-## (live highlighting of the active state + transition log).
+## (live highlighting of the active state, transition log, live variable values).
 
 var editor: Object
 
@@ -13,6 +13,9 @@ func _has_capture(capture: String) -> bool:
 func _capture(message: String, data: Array, _session_id: int) -> bool:
 	if message == "runcrafter:state" and editor:
 		editor.on_debug_state(data)
+		return true
+	if message == "runcrafter:vars" and editor:
+		editor.on_debug_vars(data)
 		return true
 	return false
 

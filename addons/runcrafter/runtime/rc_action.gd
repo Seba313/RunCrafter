@@ -197,8 +197,14 @@ func _gm_resolve_bindings() -> void:
 	if bindings.is_empty():
 		return
 	for prop in bindings:
-		var v: Variant = fsm.get_var(bindings[prop])
 		var cur: Variant = get(prop)
+		if cur is String and String(prop).ends_with("expression"):
+			# An expression bound to a variable evaluates that variable, whatever its type
+			# (converting e.g. a Color to text would give "(1, 1, 0, 1)", which is not
+			# a valid expression). Expressions see globals by their plain name.
+			set(prop, String(bindings[prop]).trim_prefix("g:"))
+			continue
+		var v: Variant = fsm.get_var(bindings[prop])
 		if cur is NodePath:
 			if v is Object or v == null:
 				_node_overrides[prop] = v

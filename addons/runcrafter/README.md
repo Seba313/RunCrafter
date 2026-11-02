@@ -30,19 +30,28 @@ Requires **Godot 4.5 or newer** (tested on 4.7).
 
 ## Quick start
 
-1. Add an **RCFsmComponent** node as a child of the node it should control (by default the FSM's "owner" is its parent, see `owner_path`).
-2. Select the node and click **Create FSM** in the RunCrafter tab.
+1. Select the node that should get a state machine and click **Add FSM** in the RunCrafter tab. This adds an **RCFsmComponent** child named `FSM` (its parent is the FSM's "owner", see `owner_path`). You can also add an `RCFsmComponent` by hand and click **Create FSM**.
+2. The new FSM opens with one state, `State 1`.
 3. **Right-click the graph** to add a state (*Add State*). **Right-click a state** to add a transition, set the start state, copy, duplicate or delete it.
-4. **Connecting (like PlayMaker):** grab an event row of a state (e.g. `FINISHED`) and drag it onto any part of another state. The state under the cursor is highlighted. Dropping on its own state creates a self transition; empty space or `Esc` cancels. Dragging an already connected transition re-targets it. Right-click an event row for a menu: change event, Disconnect, Move Up/Down, Delete.
+4. **Connecting (like PlayMaker):** grab an event row of a state (e.g. `FINISHED`) and drag it onto any part of another state. The state under the cursor is highlighted. Dropping on its own state creates a self transition; empty space or `Esc` cancels. Dragging an already connected transition re-targets it. The whole area below the title bar picks the nearest event row, so you never move a state by accident; move states by their title bar (hover a state to see its action count). Right-click an event row for a menu: change event, Disconnect, Move Up/Down, Delete.
 5. In the **State** tab click **Add Action…**. Actions run from top to bottom. Click an action's title to fold it (folded actions show a one-line summary of their parameters); *Collapse All / Expand All* fold the whole list.
 6. Run the game: the active state glows orange and transitions are listed in the **Log** tab.
 
 Opening the editor:
 * selecting an `RCFsmComponent` node opens it in the RunCrafter tab,
 * selecting a node that **owns** an FSM (its parent) loads that FSM into RunCrafter without leaving the 2D/3D view,
+* selecting a node without an FSM shows an empty RunCrafter tab with an **Add FSM** button,
 * the **Edit FSM '…' in RunCrafter** button at the top of the Inspector always opens it (also from the Script editor); a node with several FSMs gets one button per FSM and a picker in the RunCrafter toolbar.
 
 Graph shortcuts: `Delete` deletes, `Ctrl+C` / `Ctrl+V` copy and paste, `Ctrl+D` duplicates. All changes support Undo/Redo.
+
+## Groups, comments and problem checks
+
+* **Groups** – select states, right-click a state (or the empty graph) and choose *Group Selected States*. The titled frame moves its states together; drop more states onto it to add them, or right-click a state > *Remove from Group*. Double-click the frame (or right-click > *Edit Group…*) to change the title, notes and color.
+* **Comments** – right-click the empty graph > *Add Comment* places a resizable note. Double-click it to edit the text.
+* Groups and comments only help you organize the graph; they do nothing while the game runs.
+* **Problems** – RunCrafter checks the FSM while you edit it: missing target nodes, variables or states, syntax errors in expressions, unconnected events and states that nothing leads to. States with problems get a red (error) or yellow (warning) outline and a ⚠ in the title, the list is shown at the top of the **State** tab, and the toolbar shows a counter (click it to jump to the next state with a problem).
+* **Live values** – while the game runs, the **Variables** and **Globals** tabs show the current value of every variable in orange (▶ value) for the FSM being edited.
 
 ## Variables and binding
 
