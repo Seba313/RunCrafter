@@ -131,6 +131,7 @@ editor_collapsed = true
 script = ExtResource("12_g51td")
 variable = "hp"
 add = -1
+editor_collapsed = true
 
 [sub_resource type="Resource" id="Resource_tdils"]
 script = ExtResource("13_wrn8h")
@@ -338,12 +339,14 @@ target = NodePath("../Player")
 remote_name = "hp"
 store_value = "hp"
 every_frame = true
+editor_collapsed = true
 
 [sub_resource type="Resource" id="Resource_uq08m"]
 script = ExtResource("21_1ex3l")
 text = "RunCrafter demo   Score: {score}   HP: {hp}
 Arrows - move, collect coins   |   Space / Enter - take damage"
 every_frame = true
+editor_collapsed = true
 
 [sub_resource type="Resource" id="Resource_alxy3"]
 script = ExtResource("22_i7doh")
@@ -401,7 +404,7 @@ to_state = "Show"
 [sub_resource type="Resource" id="Resource_mdx8f"]
 script = ExtResource("4_bq0mi")
 state_name = "Damage"
-position = Vector2(380, 160)
+position = Vector2(380, 100)
 actions = Array[ExtResource("5_y44y6")]([SubResource("Resource_ufvfa")])
 transitions = Array[ExtResource("2_iilc7")]([SubResource("Resource_3xgl7")])
 
